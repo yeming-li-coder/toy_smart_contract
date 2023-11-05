@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 1. Pragma
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.22;
 // 2. Imports
 
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
@@ -83,7 +83,9 @@ contract FundMe {
         require(success);
     }
 
-    /** Getter Functions */
+    /**
+     * Getter Functions
+     */
 
     /**
      * @notice Gets the amount that an address has funded
