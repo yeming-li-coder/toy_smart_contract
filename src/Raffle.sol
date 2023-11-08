@@ -9,6 +9,7 @@ contract Raffle is VRFConsumerBaseV2 {
     error Raffle__NotEnoughTimeHasPassed();
     error Raffle__TransferFailed();
     error Raffle__RaffleNotOpen();
+    error Raffle__UpkeepNotNeeded(uint256 currentBalance, uint256 numPlayers, RaffleState raffleState);
 
     enum RaffleState {
         OPEN,
@@ -70,27 +71,52 @@ contract Raffle is VRFConsumerBaseV2 {
         emit EnterRaffle(msg.sender);
     }
 
+    function checkUpkeep(bytes memory /*checkData*/ )
+        public
+        view
+        returns (bool upkeepNeeded, bytes memory /* performData */ )
+    {
+        bool timeHasPassed = (block.timestamp - s_lastTimeStamp) >= i_interval;
+        bool isOpen = (RaffleState.OPEN == s_rafflestate);
+        bool hasBalance = address(this).balance > 0;
+        bool hasPlayers = s_players.length > 0;
+        upkeepNeeded = timeHasPassed && isOpen && hasBalance && hasPlayers;
+        return (upkeepNeeded, "0x0");
+    }
+
+    function performUpkeep(bytes calldata /*performData*/ ) external {
+        (bool upkeepNeeded,) = checkUpkeep("");
+        if (!upkeepNeeded) {
+            revert Raffle__UpkeepNotNeeded(address(this).balance, s_players.length, s_rafflestate);
+        }
+        s_rafflestate = RaffleState.CALCULATING;
+        VRFCoordinatorV2Interface(i_vrfCoordinator).requestRandomWords(
+            i_gasLane, i_subscriptionId, REQUEST_CONFIRMATIONS, i_callbackGasLimit, NUM_WORDS
+        );
+
+    }
+
     function pickWinner() external {
         if ((block.timestamp - s_lastTimeStamp) < i_interval) {
             revert Raffle__NotEnoughTimeHasPassed();
         }
 
         s_rafflestate = RaffleState.CALCULATING;
-        uint256 requestId = VRFCoordinatorV2Interface(i_vrfCoordinator).requestRandomWords(
+        VRFCoordinatorV2Interface(i_vrfCoordinator).requestRandomWords(
             i_gasLane, i_subscriptionId, REQUEST_CONFIRMATIONS, i_callbackGasLimit, NUM_WORDS
         );
     }
 
-    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
+    function fulfillRandomWords(uint256, /*requestId*/ uint256[] memory randomWords) internal override {
         uint256 indexOfWinner = randomWords[0] % s_players.length;
         s_recentWinner = s_players[indexOfWinner];
-        (bool success,) = s_recentWinner.call{value: address(this).balance}("");
-        if (!success) {
-            revert Raffle__TransferFailed();
-        }
         s_players = new address payable[](0);
         s_lastTimeStamp = block.timestamp;
         s_rafflestate = RaffleState.OPEN;
         emit PickedWinner(s_recentWinner);
+        (bool success,) = s_recentWinner.call{value: address(this).balance}("");
+        if (!success) {
+            revert Raffle__TransferFailed();
+        }
     }
 }
